@@ -1,6 +1,4 @@
 from flask_sqlalchemy import SQLAlchemy
-from app.secret import Secret
-from datetime import datetime
 from flask_migrate import Migrate
 
 db = SQLAlchemy()
