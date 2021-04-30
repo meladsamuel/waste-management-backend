@@ -3,6 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+CONFIG_PATH = os.path.abspath(__file__)
+ROOT_DIR = os.path.dirname(CONFIG_PATH)
+UPLOAD_DIRECTORY = os.path.join(ROOT_DIR, 'uploads')
+
 
 class Config(object):
     DEBUG = False
