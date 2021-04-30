@@ -1,7 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
-from app.secret import Secret
-from datetime import datetime
 from flask_migrate import Migrate
+from datetime import datetime
 
 db = SQLAlchemy()
 
@@ -35,13 +34,11 @@ class Basket(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     longitude = db.Column(db.Float, nullable=False)
     latitude = db.Column(db.Float, nullable=False)
-    software_version = db.Column(db.String, nullable=False, default="v1.0")
+    software_version = db.Column(db.String, nullable=False, default="0.0.0")
     wastes_height = db.Column(db.Integer, nullable=False, default=0)
-    length = db.Column(db.Integer, nullable=False, default=40)
-    width = db.Column(db.Integer, nullable=False, default=40)
-    height = db.Column(db.Integer, nullable=False, default=90)
-    wastes = db.relationship('Waste', lazy=True,
-                             backref=db.backref('basket', lazy=True))
+    wastes = db.relationship('Waste', lazy=True, backref=db.backref('basket', lazy=True))
+    software_versions = db.relationship('SoftwareVersion', lazy=True, backref=db.backref('basket', lazy=True))
+    type = db.Column(db.Integer, db.ForeignKey('basketsTypes.id'), nullable=False)
     area_code = db.Column(db.Integer, db.ForeignKey('areas.code'), nullable=False)
 
     def save(self):
@@ -59,15 +56,13 @@ class Basket(db.Model):
             "id": self.id,
             "longitude": self.longitude,
             "latitude": self.latitude,
-            "basket_length": self.length,
-            "basket_width": self.width,
-            "basket_height": self.height,
             "software_version": self.software_version,
+            "micro_controller": self.basketType.micro_controller,
             "level": "{}%".format(self.get_basket_level())
         }
 
     def set_wastes_height(self, waste_height):
-        if waste_height <= (self.height - self.wastes_height):
+        if waste_height <= (self.basketType.height - self.wastes_height):
             self.wastes_height += waste_height
             return False
         return True
@@ -76,7 +71,7 @@ class Basket(db.Model):
         return (self.length * self.width * float(height)) / 1000000
 
     def get_basket_level(self):
-        return int((self.wastes_height / self.height) * 100)
+        return int((self.wastes_height / self.basketType.height) * 100)
 
 
 class Area(db.Model):
@@ -216,3 +211,49 @@ class Waste(db.Model):
 
     def delete(self):
         db.session.commit()
+
+
+class SoftwareVersion(db.Model):
+    __tablename__ = "software_versions"
+    version = db.Column(db.String(), primary_key=True)
+    file = db.Column(db.LargeBinary())
+    date = db.Column(db.DateTime, server_default=db.func.now())
+    basket_id = db.Column(db.Integer, db.ForeignKey('baskets.id'), nullable=True, primary_key=True)
+
+    def save(self, has_key_by_default=False):
+        if self.version is None or has_key_by_default:
+            db.session.add(self)
+        db.session.commit()
+        return self
+
+    def format(self, status):
+        return {
+            "version": self.version,
+            "date": self.date,
+            "status": status
+        }
+
+    def delete(self):
+        db.session.commit()
+
+
+class BasketType(db.Model):
+    __tablename__ = "basketsTypes"
+    id = db.Column(db.Integer, primary_key=True)
+    length = db.Column(db.Integer, nullable=False)
+    width = db.Column(db.Integer, nullable=False)
+    height = db.Column(db.Integer, nullable=False)
+    micro_controller = db.Column(db.String, nullable=False)
+    basket = db.relationship('Basket', lazy=True, backref=db.backref('basketType', lazy=True))
+
+    def save(self):
+        if self.id is None:
+            db.session.add(self)
+        db.session.commit()
+        return self
+
+    def format(self):
+        return {    
+            "name": "{}*{}*{}/{}".format(self.length, self.width, self.height, self.micro_controller),
+            "value": self.id
+        }

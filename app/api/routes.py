@@ -1,8 +1,9 @@
-from flask import Blueprint, jsonify, request, abort, Response
-from app.models import Basket, User, Waste, Vehicle, Employee, commit, Area
+from flask import Blueprint, jsonify, request, abort, Response, send_file
+from app.models import Basket, User, Waste, Vehicle, Employee, commit, Area, SoftwareVersion, BasketType
 from app.validate import validate
 import json
 from datetime import datetime
+from io import BytesIO
 
 api = Blueprint('api', __name__, url_prefix='/api')
 
@@ -55,10 +56,14 @@ def add_new_basket():
     longitude = data['longitude']
     latitude = data['latitude']
     area_code = data['area_code']
+    type_id = data['type']
     area = Area.query.get(area_code)
     if not area:
-        abort(404)
-    basket = Basket(longitude=longitude, latitude=latitude, area=area).save()
+        abort(422)
+    basket_type = BasketType.query.get(type_id)
+    if not basket_type:
+        abort(422)
+    basket = Basket(longitude=longitude, latitude=latitude, area=area, basketType=basket_type).save()
 
     return jsonify({
         "success": True,
@@ -339,3 +344,90 @@ def test():
     return jsonify({
         "value": data['value']
     })
+
+
+@api.route("/baskets_types")
+def get_basket_type():
+    types_of_baskets = BasketType.query.all()
+    type_list = [type_of_basket.format() for type_of_basket in types_of_baskets]
+    return jsonify({
+        "types": type_list
+    })
+
+
+@api.route("/baskets_types", methods=["POST"])
+def create_basket_type():
+    data = request.json
+    length = data["length"]
+    height = data["height"]
+    width = data["width"]
+    micro_controller = data["micro_controller"]
+    roles = ['length', 'height', 'width']
+    abort(400) if not validate(roles, data) else None
+    try:
+        basket_type = BasketType(length=length, height=height, width=width, micro_controller=micro_controller).save()
+        return jsonify({
+            "success": True,
+            'Type': basket_type.format()
+        })
+    except:
+        abort(422)
+
+
+@api.route('/baskets/<int:basket_id>/versions')
+def get_basket_software_version(basket_id):
+    basket = Basket.query.get(basket_id)
+    software_versions = SoftwareVersion.query.filter_by(basket_id=basket_id).order_by(SoftwareVersion.date.desc()).all()
+    list_software_version = []
+    status = 'update'
+    for software_version in software_versions:
+        if software_version.version == basket.software_version:
+            status = 'rollback'
+            list_software_version.append(software_version.format('current'))
+            continue
+        list_software_version.append(software_version.format(status))
+    return jsonify({
+        "software_versions": list_software_version,
+        "current_version": basket.software_version
+    })
+
+
+@api.route("/software_versions/<string:version>")
+def get_file(version):
+    software = SoftwareVersion.query.get(version)
+    file_name = "{}.bin".format(software.version)
+    return send_file(BytesIO(software.file), attachment_filename=file_name, as_attachment=True)
+
+
+@api.route("/software_versions", methods=["POST"])
+def post_file():
+    file = request.files['file']
+    update_type = request.form.get("update_type", None)
+    basket_id = request.form.get("basket_id", None)
+    basket = Basket.query.get(basket_id)
+    last_version = SoftwareVersion.query.filter_by(basket_id=basket_id).order_by(SoftwareVersion.date.desc()).first()
+    if last_version:
+        major, minor, patch = last_version.version.split(".")
+        if update_type == "patch":
+            patch = int(patch) + 1
+        elif update_type == "minor":
+            minor = int(minor) + 1
+            patch = 0
+        elif update_type == "major":
+            major = int(major) + 1
+            patch = 0
+            minor = 0
+        else:
+            abort(422)
+        print(last_version.version.split())
+        version = "{}.{}.{}".format(major, minor, patch)
+    else:
+        version = "0.1.0"
+    print(version)
+    print(last_version)
+    software_version = SoftwareVersion(version=version, file=file.read(), basket=basket)
+    software_version.save(True)
+    return jsonify({
+        "success": True,
+        "version": software_version.version
+    }), 201
