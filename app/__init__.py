@@ -3,6 +3,7 @@ from flask_cors import CORS
 from app.site.routes import site
 from app.api.routes import api
 from app.models import setup_db
+from app.api.routes import setup_jwt
 
 
 def create_app():
@@ -12,6 +13,7 @@ def create_app():
     else:
         app.config.from_object("config.DevelopmentConfig")
     CORS(app)
+    setup_jwt(app)
     app.register_blueprint(site)
     app.register_blueprint(api)
     setup_db(app)

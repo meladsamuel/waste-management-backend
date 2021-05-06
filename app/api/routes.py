@@ -1,16 +1,23 @@
 from flask import Blueprint, jsonify, request, abort, Response, send_file
-from app.models import Basket, User, Waste, Vehicle, Employee, commit, Area, SoftwareVersion, BasketType
+from app.models import Basket, User, Waste, Vehicle, Employee, commit, Area, SoftwareVersion, BasketType, Role, \
+    Permission
 from app.validate import validate
-import json
 from datetime import datetime
 from io import BytesIO
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 
 api = Blueprint('api', __name__, url_prefix='/api')
+
+jwt = JWTManager()
+
+
+def setup_jwt(app):
+    jwt.init_app(app)
 
 
 @api.route('/')
 def index():
-    return jsonify({"message": "the api is working"})
+    return jsonify({"api": "working"})
 
 
 @api.route('baskets')
@@ -264,6 +271,66 @@ def delete_employee(employee_ssn):
     })
 
 
+@api.route('roles')
+def get_roles():
+    roles = Role.query.all()
+    list_role = [role.format() for role in roles]
+    return jsonify({"roles": list_role})
+
+
+@api.route('roles/<string:role_name>')
+def get_one_role(role_name):
+    role = Role.query.get(role_name)
+    if role is None:
+        abort(404, "role not found")
+    return jsonify({"role": role.format()})
+
+
+@api.route('roles', methods=["POST"])
+def create_new_role():
+    req = request.get_json(force=True)
+    name = req.get('name', None)
+    description = req.get('description', None)
+    try:
+        new_role = Role(name=name, description=description).create()
+        return jsonify({
+            "success": True,
+            "role": new_role.format()
+        })
+    except:
+        abort(501, "can not create new role")
+
+
+@api.route('permissions')
+def get_permissions():
+    permissions = Permission.query.all()
+    list_permissions = [permission.format() for permission in permissions]
+    return jsonify({"permissions": list_permissions})
+
+
+@api.route('permissions/<string:permission_name>')
+def get_one_permission(permission_name):
+    permission = Permission.query.get(permission_name)
+    if permission is None:
+        abort(404, "permission not found")
+    return jsonify({"permission": permission.format()})
+
+
+@api.route('permissions', methods=["POST"])
+def create_new_permission():
+    req = request.get_json(force=True)
+    name = req.get('name', None)
+    description = req.get('description', None)
+    try:
+        new_permission = Permission(name=name, description=description).create()
+        return jsonify({
+            "success": True,
+            "role": new_permission.format()
+        })
+    except:
+        abort(501, "can not create new permission")
+
+
 @api.route('users')
 def get_all_users():
     users = User.query.all()
@@ -273,28 +340,97 @@ def get_all_users():
 
 @api.route('users', methods=['POST'])
 def create_new_user():
-    data = request.json
-    user_name = data['user_name']
-    first_name = data['first_name']
-    last_name = data['last_name']
-    email = data['email']
-    password = data['password']
-    gender = data['gender']
-    area = data['area_code']
-    area = Area.query.get(area)
-    if not area:
-        abort(404)
-    roles = ['user_name', 'first_name', 'last_name', 'email', 'password', 'gender']
-    abort(400) if not validate(roles, data) else None
+    req = request.get_json(force=True)
+    username = req.get('username', None)
+    email = req.get('email', None)
+    password = req.get('password', None)
+    first_name = req.get('first_name', None)
+    last_name = req.get('last_name', None)
+    gender = req.get('gender', None)
+
+    user = User(user_name=username, email=email, first_name=first_name, last_name=last_name,
+                gender=gender).set_password(password).save().send_verification_email()
+    return jsonify({
+        "success": True,
+        'user': user.format()
+    }), 201
+
+
+@api.route('users/activate', methods=['PATCH'])
+@jwt_required()
+def activate_user():
+    user_name = get_jwt_identity()
     try:
-        user = User(user_name=user_name, first_name=first_name, last_name=last_name, email=email, password=password,
-                    gender=gender, area=area).save(True)
-        return jsonify({
-            "success": True,
-            'user': user.format()
-        })
+        user = User.query.filter_by(user_name=user_name).one_or_none()
+        user.is_active = True
+        user.save()
+    except:
+        abort(501, "can not activate the current user")
+    return jsonify({"success": True}), 200
+
+
+@api.route('users/disable', methods=['PATCH'])
+def disable_user():
+    req = request.get_json(force=True)
+    user = User.query.filter_by(user_name=req.get('username', None)).one()
+    user.is_active = False
+    try:
+        user.save()
+        return jsonify({'success': True})
     except:
         abort(422)
+
+
+@api.route('users/auth', methods=['POST'])
+def authenticate_user():
+    req = request.get_json(force=True)
+    username = req.get('username', None)
+    password = req.get('password', None)
+    # try:
+    user = User.query.filter_by(user_name=username).one_or_none()
+    token = user.authenticate(user_name=username, password=password)
+    return jsonify({
+        "user": user.format(),
+        "access_token": token["access_token"],
+        "refresh_token": token["refresh_token"]
+    }), 200
+    # except:
+    #     abort(401, "username or password not valid")
+
+
+@api.route('users/auth/refresh', methods=["POST"])
+@jwt_required(refresh=True)
+def refresh_user_token():
+    identity = get_jwt_identity()
+    print(identity)
+    access_token = create_access_token(identity=identity, fresh=False)
+    return jsonify(access_token=access_token)
+
+
+@api.route('users/<int:user_id>/roles', methods=['PATCH'])
+def set_role_for_user(user_id):
+    req = request.get_json(force=True)
+    role_name = req.get('role_name', None)
+    try:
+        user = User.query.get(user_id)
+        user.role = Role.query.get(role_name)
+        user.save()
+    except:
+        abort(501, "can not set the role for the user")
+    return jsonify({"success": True})
+
+
+@api.route('roles/<string:role_name>/permissions', methods=['PATCH'])
+def set_permissions_for_role(role_name):
+    req = request.get_json(force=True)
+    permissions = req.get('permissions', None)
+    role = Role.query.get(role_name)
+    # permissions_list = []
+    for permission_name in permissions:
+        role.permissions.append(Permission.query.get(permission_name))
+
+    role.create()
+    return jsonify({"success": True})
 
 
 @api.route('wastes')
@@ -431,3 +567,14 @@ def post_file():
         "success": True,
         "version": software_version.version
     }), 201
+
+
+@jwt.additional_claims_loader
+def add_claims_to_access_token(identity):
+    user = User.query.filter_by(user_name=identity).one_or_none()
+    permissions = user.role.permissions
+    if user is None or user.role_name is None:
+        return None
+    return {
+        "permissions": [permission.name for permission in permissions]
+    }

@@ -1,13 +1,18 @@
+from flask import current_app, render_template, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from datetime import datetime
+from flask_jwt_extended import create_access_token, create_refresh_token
+from flask_mail import Mail, Message
+import bcrypt
 
 db = SQLAlchemy()
+mail = Mail()
 
 
 def setup_db(app):
     db.app = app
     db.init_app(app)
+    mail.init_app(app)
     migrate = Migrate(app, db)
 
 
@@ -22,11 +27,16 @@ collect = db.Table('collect',
                    )
 
 complaint = db.Table('complaint',
-                     db.Column('user_name', db.String, db.ForeignKey('users.user_name'), primary_key=True),
+                     db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
                      db.Column('basket_id', db.Integer, db.ForeignKey('baskets.id'), primary_key=True),
                      db.Column('date_of_compliant', db.DateTime, primary_key=True),
                      db.Column('compliant_message', db.String),
                      )
+
+rolePermission = db.Table('roles_permissions',
+                          db.Column('role_name', db.String, db.ForeignKey('roles.name'), primary_key=True),
+                          db.Column('permission_name', db.String, db.ForeignKey('permissions.name'), primary_key=True)
+                          )
 
 
 class Basket(db.Model):
@@ -103,7 +113,8 @@ class Area(db.Model):
 
 class User(db.Model):
     __tablename__ = 'users'
-    user_name = db.Column(db.String, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True)
+    user_name = db.Column(db.String, unique=True)
     first_name = db.Column(db.String, nullable=False)
     last_name = db.Column(db.String, nullable=False)
     email = db.Column(db.String, nullable=False, unique=True)
@@ -111,11 +122,39 @@ class User(db.Model):
     gender = db.Column(db.String, nullable=False)
     DOB = db.Column(db.DateTime)
     phone = db.Column(db.String)
-    area_code = db.Column(db.Integer, db.ForeignKey('areas.code'), nullable=False)
+    area_code = db.Column(db.Integer, db.ForeignKey('areas.code'))
+    is_active = db.Column(db.Boolean, default=False, server_default="false")
+    role_name = db.Column(db.String(), db.ForeignKey('roles.name'))
     baskets = db.relationship('Basket', secondary=complaint, lazy=True, backref=db.backref('complainants'))
 
-    def save(self, has_key_by_default=False):
-        if self.user_name is None or has_key_by_default:
+    def authenticate(self, user_name, password):
+        if not self.valid_password(password) or self.user_name != user_name:
+            abort(401, "username or password not valid")
+        return {
+            "access_token": create_access_token(self.user_name),
+            "refresh_token": create_refresh_token(self.user_name)
+        }
+
+    def send_verification_email(self):
+        data = {
+            "redirect_url": current_app.config.get('CONFIRMATION_REDIRECT_URL'),
+            "access_token": create_access_token(self.user_name),
+            "user": self,
+        }
+        msg = Message("Please confirm your registration", recipients=[self.email])
+        msg.html = render_template('mail/registration.html', **data)
+        # mail.send(msg)
+        return self
+
+    def set_password(self, plaint_password):
+        self.password = bcrypt.hashpw(plaint_password.encode('utf-8'), bcrypt.gensalt()).decode()
+        return self
+
+    def valid_password(self, plaint_password):
+        return bcrypt.checkpw(plaint_password.encode('utf-8'), self.password.encode('utf-8'))
+
+    def save(self):
+        if self.id is None:
             db.session.add(self)
         db.session.commit()
         return self
@@ -128,6 +167,50 @@ class User(db.Model):
             "email": self.email,
             "gender": self.gender,
             "Date_of_birth": self.DOB
+        }
+
+
+class Role(db.Model):
+    __tablename__ = "roles"
+    name = db.Column(db.String(), primary_key=True)
+    description = db.Column(db.String())
+    user = db.relationship('User', lazy=True, backref=db.backref('role'))
+    permissions = db.relationship('Permission', secondary=rolePermission, backref=db.backref('role'), lazy=False)
+
+    def create(self):
+        db.session.add(self)
+        db.session.commit()
+        return self
+
+    def update(self):
+        db.session.commit()
+        return self
+
+    def format(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+        }
+
+
+class Permission(db.Model):
+    __tablename__ = "permissions"
+    name = db.Column(db.String, primary_key=True)
+    description = db.Column(db.String)
+
+    def create(self):
+        db.session.add(self)
+        db.session.commit()
+        return self
+
+    def update(self):
+        db.session.commit()
+        return self
+
+    def format(self):
+        return {
+            "name": self.name,
+            "description": self.description,
         }
 
 
@@ -253,7 +336,7 @@ class BasketType(db.Model):
         return self
 
     def format(self):
-        return {    
+        return {
             "name": "{}*{}*{}/{}".format(self.length, self.width, self.height, self.micro_controller),
             "value": self.id
         }
