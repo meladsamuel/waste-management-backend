@@ -586,7 +586,7 @@ def get_basket_software_version(basket_id):
 
 @api.route("/software_versions/<int:basket_id>/<string:version>")
 def get_file(basket_id, version):
-    software = SoftwareVersion.query.filter_by(basket_id=basket_id, version=version).first()
+    software = SoftwareVersion.query.filter_by(version=version, basket_id=basket_id).first()
     file_name = "{}.bin".format(software.version)
     return send_file(BytesIO(software.file), attachment_filename=file_name, as_attachment=True)
 
