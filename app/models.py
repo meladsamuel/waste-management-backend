@@ -4,9 +4,11 @@ from flask_migrate import Migrate
 from flask_jwt_extended import create_access_token, create_refresh_token
 from flask_mail import Mail, Message
 import bcrypt
+from itsdangerous import URLSafeSerializer, SignatureExpired
 
 db = SQLAlchemy()
 mail = Mail()
+save_serializer = URLSafeSerializer("current_app.config.get('SECRET_KEY')")
 
 
 def setup_db(app):
@@ -48,8 +50,9 @@ class Basket(db.Model):
     wastes_height = db.Column(db.Integer, nullable=False, default=0)
     wastes = db.relationship('Waste', lazy=True, backref=db.backref('basket', lazy=True))
     software_versions = db.relationship('SoftwareVersion', lazy=True, backref=db.backref('basket', lazy=True))
-    type = db.Column(db.Integer, db.ForeignKey('basketsTypes.id'), nullable=False)
-    area_code = db.Column(db.Integer, db.ForeignKey('areas.code'), nullable=False)
+    # type = db.Column(db.Integer, db.ForeignKey('basketsTypes.id'), nullable=False)
+    area_code = db.Column(db.Integer, db.ForeignKey('areas.code'))
+    micro_controller = db.Column(db.String, nullable=False)
 
     def save(self):
         if self.id is None:
@@ -67,21 +70,67 @@ class Basket(db.Model):
             "longitude": self.longitude,
             "latitude": self.latitude,
             "software_version": self.software_version,
-            "micro_controller": self.basketType.micro_controller,
-            "level": "{}%".format(self.get_basket_level())
+            "micro_controller": self.micro_controller,
+            "level": self.get_basket_section_level()
         }
 
-    def set_wastes_height(self, waste_height):
-        if waste_height <= (self.basketType.height - self.wastes_height):
-            self.wastes_height += waste_height
-            return False
+    def get_basket_section_level(self):
+        basket_height = 0
+        sections_levels_in_basket = []
+        wastes_level_in_section = []
+        for section in self.sections:
+            basket_height += section.height
+            wastes_level_in_section.append(section.get_section_level())
+        for section in self.sections:
+            sections_levels_in_basket.append(section.height * 100 / basket_height)
+        return {
+            "sections_levels_in_the_basket": sections_levels_in_basket,
+            "wastes_level_in_the_section": wastes_level_in_section
+        }
+
+
+class BasketSection(db.Model):
+    height = db.Column(db.SmallInteger, nullable=False)
+    width = db.Column(db.SmallInteger, nullable=False)
+    length = db.Column(db.SmallInteger, nullable=False)
+    fullness_level = db.Column(db.SmallInteger, default=0)
+    category = db.Column(db.String, primary_key=True)
+    basket_id = db.Column(db.Integer, db.ForeignKey('baskets.id'), primary_key=True)
+    basket = db.relationship('Basket', backref=db.backref('sections'))
+
+    def set_wastes(self, waste_height):
+        if waste_height <= (self.height - self.fullness_level):
+            self.fullness_level += waste_height
+            abort(501, "basket is fullness can not add new waste in the system")
         return True
 
     def get_waste_volume(self, height):
-        return (self.length * self.width * float(height)) / 1000000
+        cubic_centimeter = 1000000  # 1 cubic meter equal 1000000 cubic centimeter
+        waste_volume_in_centimeter = self.length * self.width * int(height)
+        waste_volume_in_meter = waste_volume_in_centimeter / cubic_centimeter
+        return waste_volume_in_meter
 
-    def get_basket_level(self):
-        return int((self.wastes_height / self.basketType.height) * 100)
+    def get_section_level(self):
+        return self.fullness_level * 100 / self.height
+
+    def create(self):
+        db.session.add(self)
+        db.session.commit()
+        return self
+
+    def update(self):
+        db.session.commit()
+        return self
+
+    def format(self):
+        return {
+            "category": self.category,
+            "height": self.height,
+            "width": self.width,
+            "length": self.length,
+            "fullness_level": "{}%".format(self.get_section_level()),
+            "basket": self.basket_id,
+        }
 
 
 class Area(db.Model):
@@ -127,24 +176,43 @@ class User(db.Model):
     role_name = db.Column(db.String(), db.ForeignKey('roles.name'))
     baskets = db.relationship('Basket', secondary=complaint, lazy=True, backref=db.backref('complainants'))
 
+    @staticmethod
+    def check_username_or_email_existing(username, email):
+        user_exists = User.query.filter((User.email == email) | (User.user_name == username)).one_or_none()
+        if user_exists and user_exists.user_name == username and user_exists.email == email:
+            raise AuthError('username and email are exists', 409)
+        elif user_exists and user_exists.user_name == username:
+            raise AuthError('the username is exists in our system', 409)
+        elif user_exists and user_exists.email == email:
+            raise AuthError('your email is exists', 409)
+
     def authenticate(self, user_name, password):
         if not self.valid_password(password) or self.user_name != user_name:
-            abort(401, "username or password not valid")
+            raise AuthError("username or password not valid", 401)
         return {
-            "access_token": create_access_token(self.user_name),
-            "refresh_token": create_refresh_token(self.user_name)
+            "access_token": create_access_token(self.id),
+            "refresh_token": create_refresh_token(self.id)
         }
 
     def send_verification_email(self):
         data = {
             "redirect_url": current_app.config.get('CONFIRMATION_REDIRECT_URL'),
-            "access_token": create_access_token(self.user_name),
+            "token": save_serializer.dumps(self.user_name, salt='thisIsEmailSalt'),
             "user": self,
         }
         msg = Message("Please confirm your registration", recipients=[self.email])
         msg.html = render_template('mail/registration.html', **data)
-        # mail.send(msg)
+        mail.send(msg)
         return self
+
+    @staticmethod
+    def email_verify(token):
+        try:
+            username = save_serializer.loads(token, salt="thisIsEmailSalt", max_age=3600)
+            print(username)
+            return User.query.filter(User.user_name == username).one_or_none()
+        except SignatureExpired:
+            raise AuthError("token expired", 400)
 
     def set_password(self, plaint_password):
         self.password = bcrypt.hashpw(plaint_password.encode('utf-8'), bcrypt.gensalt()).decode()
@@ -155,18 +223,21 @@ class User(db.Model):
 
     def save(self):
         if self.id is None:
+            User.check_username_or_email_existing(self.user_name, self.email)
             db.session.add(self)
         db.session.commit()
         return self
 
     def format(self):
         return {
+            "id": self.id,
             "user_name": self.user_name,
             "first_name": self.first_name,
             "last_name": self.last_name,
             "email": self.email,
             "gender": self.gender,
-            "Date_of_birth": self.DOB
+            "Date_of_birth": self.DOB,
+            "role": self.role_name
         }
 
 
@@ -206,6 +277,10 @@ class Permission(db.Model):
     def update(self):
         db.session.commit()
         return self
+
+    def delete(self):
+        db.session.delete(self)
+        db.session.commit()
 
     def format(self):
         return {
@@ -320,23 +395,7 @@ class SoftwareVersion(db.Model):
         db.session.commit()
 
 
-class BasketType(db.Model):
-    __tablename__ = "basketsTypes"
-    id = db.Column(db.Integer, primary_key=True)
-    length = db.Column(db.Integer, nullable=False)
-    width = db.Column(db.Integer, nullable=False)
-    height = db.Column(db.Integer, nullable=False)
-    micro_controller = db.Column(db.String, nullable=False)
-    basket = db.relationship('Basket', lazy=True, backref=db.backref('basketType', lazy=True))
-
-    def save(self):
-        if self.id is None:
-            db.session.add(self)
-        db.session.commit()
-        return self
-
-    def format(self):
-        return {
-            "name": "{}*{}*{}/{}".format(self.length, self.width, self.height, self.micro_controller),
-            "value": self.id
-        }
+class AuthError(Exception):
+    def __init__(self, error, status_code):
+        self.error = error
+        self.status_code = status_code

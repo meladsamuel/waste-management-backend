@@ -1,5 +1,7 @@
 alembic==1.5.2
+bcrypt==3.2.0
 blinker==1.4
+cffi==1.14.5
 click==7.1.2
 colorama==0.4.4
 Deprecated==1.2.12
@@ -14,7 +16,7 @@ greenlet==1.0.0
 gunicorn==20.0.4
 importlib-metadata==3.10.0
 inflection==0.3.1
-itsdangerous==1.1.0
+itsdangerous==2.0.1
 Jinja2==2.11.2
 Mako==1.1.4
 MarkupSafe==1.1.1
@@ -23,6 +25,7 @@ pendulum==2.1.2
 Pillow==8.2.0
 psycopg2==2.8.6
 py-buzz==1.0.3
+pycparser==2.20
 PyJWT==2.1.0
 python-dateutil==2.8.1
 python-dotenv==0.16.0

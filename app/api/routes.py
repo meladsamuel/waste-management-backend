@@ -1,14 +1,17 @@
 from flask import Blueprint, jsonify, request, abort, Response, send_file
-from app.models import Basket, User, Waste, Vehicle, Employee, commit, Area, SoftwareVersion, BasketType, Role, \
-    Permission
+from app.models import Basket, User, Waste, Vehicle, Employee, commit, Area, SoftwareVersion, Role, \
+    Permission, BasketSection, AuthError
 from app.validate import validate
 from datetime import datetime
 from io import BytesIO
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity, \
+    get_jwt
+from itsdangerous import URLSafeSerializer
 
 api = Blueprint('api', __name__, url_prefix='/api')
 
 jwt = JWTManager()
+save_serializer = URLSafeSerializer("current_app.config.get('SECRET_KEY')")
 
 
 def setup_jwt(app):
@@ -21,6 +24,7 @@ def index():
 
 
 @api.route('baskets')
+@jwt_required()
 def get_baskets():
     baskets = Basket.query.all()
     baskets_list = [basket.format() for basket in baskets]
@@ -58,20 +62,16 @@ def get_wastes_of_basket(basket_id):
 @api.route('baskets', methods=['POST'])
 def add_new_basket():
     data = request.json
-    roles = ['longitude', 'latitude', 'area_code']
-    abort(400) if not validate(roles, data) else None
     longitude = data['longitude']
     latitude = data['latitude']
-    area_code = data['area_code']
-    type_id = data['type']
-    area = Area.query.get(area_code)
-    if not area:
-        abort(422)
-    basket_type = BasketType.query.get(type_id)
-    if not basket_type:
-        abort(422)
-    basket = Basket(longitude=longitude, latitude=latitude, area=area, basketType=basket_type).save()
-
+    micro_controller = data['micro_controller']
+    sections = data['sections']
+    basket = Basket(longitude=longitude, latitude=latitude, micro_controller=micro_controller)
+    for section in sections:
+        section = BasketSection(height=section['section_height'], width=section['section_width'],
+                                length=section['section_length'], category=section['section'])
+        basket.sections.append(section)
+    basket.save()
     return jsonify({
         "success": True,
         "basket": basket.format()
@@ -321,21 +321,52 @@ def create_new_permission():
     req = request.get_json(force=True)
     name = req.get('name', None)
     description = req.get('description', None)
-    try:
-        new_permission = Permission(name=name, description=description).create()
+    if Permission.query.get(name):
         return jsonify({
-            "success": True,
-            "role": new_permission.format()
-        })
-    except:
-        abort(501, "can not create new permission")
+            "success": False,
+            "message": "The permission is already exist",
+            "error": 501
+        }), 501
+    new_permission = Permission(name=name, description=description).create()
+    return jsonify({
+        "success": True,
+        "permission": new_permission.format()
+    })
+
+
+@api.route('permissions/<string:permission>', methods=['DELETE'])
+def delete_permission(permission):
+    permission = Permission.query.get(permission)
+    permission.delete()
+    return jsonify({
+        'success': True
+    })
 
 
 @api.route('users')
 def get_all_users():
+    args = request.args
+    if 'search' in args:
+        search = args['search'].split()
+        if len(search) == 2:
+            first_name = "%{}%".format(search[0])
+            last_name = "%{}%".format(search[1])
+            users = User.query.filter(User.first_name.like(first_name) & User.last_name.like(last_name)).all()
+            return jsonify({"user": [user.format() for user in users]})
+        else:
+            value = "%{}%".format(search[0])
+            users = User.query.filter(User.first_name.like(value) | User.email.like(value)).all()
+            return jsonify({"user": [user.format() for user in users]})
     users = User.query.all()
-    users_list = [user.format() for user in users]
-    return jsonify({"user": users_list})
+    return jsonify({"user": [user.format() for user in users]})
+
+
+@api.route('users/<int:user_id>')
+def get_one_user(user_id):
+    user = User.query.get(user_id)
+    return jsonify({
+        "user": user.format()
+    })
 
 
 @api.route('users', methods=['POST'])
@@ -347,26 +378,29 @@ def create_new_user():
     first_name = req.get('first_name', None)
     last_name = req.get('last_name', None)
     gender = req.get('gender', None)
-
     user = User(user_name=username, email=email, first_name=first_name, last_name=last_name,
                 gender=gender).set_password(password).save().send_verification_email()
     return jsonify({
         "success": True,
-        'user': user.format()
+        'user': user.format(),
+        "access_token": create_access_token(user.id),
+        "refresh_token": create_refresh_token(user.id)
     }), 201
 
 
 @api.route('users/activate', methods=['PATCH'])
-@jwt_required()
 def activate_user():
-    user_name = get_jwt_identity()
-    try:
-        user = User.query.filter_by(user_name=user_name).one_or_none()
-        user.is_active = True
-        user.save()
-    except:
-        abort(501, "can not activate the current user")
-    return jsonify({"success": True}), 200
+    req = request.get_json(force=True)
+    token = req.get('token', None)
+    user = User.email_verify(token)
+    if not user:
+        raise AuthError("token is invalid", 400)
+    user.is_active = True
+    user.save()
+    return jsonify({
+        "success": True,
+        "access_token": create_access_token(user.id)
+    }), 200
 
 
 @api.route('users/disable', methods=['PATCH'])
@@ -386,16 +420,17 @@ def authenticate_user():
     req = request.get_json(force=True)
     username = req.get('username', None)
     password = req.get('password', None)
-    # try:
+    if not username and not password:
+        raise AuthError('username and password is required', 422)
     user = User.query.filter_by(user_name=username).one_or_none()
-    token = user.authenticate(user_name=username, password=password)
+    if not user:
+        raise AuthError("username or password not valid", 401)
+    token = user.authenticate(username, password)
     return jsonify({
         "user": user.format(),
         "access_token": token["access_token"],
         "refresh_token": token["refresh_token"]
     }), 200
-    # except:
-    #     abort(401, "username or password not valid")
 
 
 @api.route('users/auth/refresh', methods=["POST"])
@@ -420,17 +455,38 @@ def set_role_for_user(user_id):
     return jsonify({"success": True})
 
 
+@api.route('roles/<string:role_name>/permissions')
+def get_permissions_belong_to_role(role_name):
+    role = Role.query.get(role_name)
+    return jsonify({
+        "role": {
+            "name": role.name,
+            "description": role.description,
+            "permissions": [permission.format() for permission in role.permissions]
+        }
+    })
+
+
 @api.route('roles/<string:role_name>/permissions', methods=['PATCH'])
 def set_permissions_for_role(role_name):
     req = request.get_json(force=True)
     permissions = req.get('permissions', None)
     role = Role.query.get(role_name)
-    # permissions_list = []
-    for permission_name in permissions:
-        role.permissions.append(Permission.query.get(permission_name))
-
+    role.permissions += Permission.query.filter(Permission.name.in_(permissions)).all()
     role.create()
     return jsonify({"success": True})
+
+
+@api.route('roles/<string:role_name>/permissions', methods=['DELETE'])
+def remove_permissions_for_role(role_name):
+    req = request.get_json(force=True)
+    permissions_list = req.get('permissions', None)
+    role = Role.query.get(role_name)
+    permissions = Permission.query.filter(Permission.name.in_(permissions_list)).all()
+    for permission in permissions:
+        role.permissions.remove(permission)
+    role.update()
+    return jsonify({"success": True, "permissions": permissions_list})
 
 
 @api.route('wastes')
@@ -482,32 +538,32 @@ def test():
     })
 
 
-@api.route("/baskets_types")
-def get_basket_type():
-    types_of_baskets = BasketType.query.all()
-    type_list = [type_of_basket.format() for type_of_basket in types_of_baskets]
-    return jsonify({
-        "types": type_list
-    })
+# @api.route("/baskets_types")
+# def get_basket_type():
+#     types_of_baskets = BasketType.query.all()
+#     type_list = [type_of_basket.format() for type_of_basket in types_of_baskets]
+#     return jsonify({
+#         "types": type_list
+#     })
 
 
-@api.route("/baskets_types", methods=["POST"])
-def create_basket_type():
-    data = request.json
-    length = data["length"]
-    height = data["height"]
-    width = data["width"]
-    micro_controller = data["micro_controller"]
-    roles = ['length', 'height', 'width']
-    abort(400) if not validate(roles, data) else None
-    try:
-        basket_type = BasketType(length=length, height=height, width=width, micro_controller=micro_controller).save()
-        return jsonify({
-            "success": True,
-            'Type': basket_type.format()
-        })
-    except:
-        abort(422)
+# @api.route("/baskets_types", methods=["POST"])
+# def create_basket_type():
+#     data = request.json
+#     length = data["length"]
+#     height = data["height"]
+#     width = data["width"]
+#     micro_controller = data["micro_controller"]
+#     roles = ['length', 'height', 'width']
+#     abort(400) if not validate(roles, data) else None
+#     try:
+#         basket_type = BasketType(length=length, height=height, width=width, micro_controller=micro_controller).save()
+#         return jsonify({
+#             "success": True,
+#             'Type': basket_type.format()
+#         })
+#     except:
+#         abort(422)
 
 
 @api.route('/baskets/<int:basket_id>/versions')
@@ -528,9 +584,9 @@ def get_basket_software_version(basket_id):
     })
 
 
-@api.route("/software_versions/<string:version>")
-def get_file(version):
-    software = SoftwareVersion.query.get(version)
+@api.route("/software_versions/<int:basket_id>/<string:version>")
+def get_file(basket_id, version):
+    software = SoftwareVersion.query.filter_by(basket_id=basket_id, version=version).first()
     file_name = "{}.bin".format(software.version)
     return send_file(BytesIO(software.file), attachment_filename=file_name, as_attachment=True)
 
@@ -571,10 +627,19 @@ def post_file():
 
 @jwt.additional_claims_loader
 def add_claims_to_access_token(identity):
-    user = User.query.filter_by(user_name=identity).one_or_none()
-    permissions = user.role.permissions
-    if user is None or user.role_name is None:
-        return None
-    return {
-        "permissions": [permission.name for permission in permissions]
-    }
+    claims = {}
+    user = User.query.get(identity)
+    if user:
+        claims['active'] = user.is_active
+        if user.role_name:
+            claims['permissions'] = [permission.name for permission in user.role.permissions]
+    return claims
+
+
+@api.errorhandler(AuthError)
+def auth_error(error):
+    return jsonify({
+        "success": False,
+        "message": error.error,
+        "error": error.status_code
+    }), error.status_code
