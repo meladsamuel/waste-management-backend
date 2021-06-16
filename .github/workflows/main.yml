@@ -20,4 +20,13 @@ jobs:
           rollbackonhealthcheckfailed: true
         env:
             HD_DATABASE_URL: ${{secrets.DATABASE_URL}}
-            HD_FLASK_ENV: "production"
+            HD_SECRET_KEY: ${{secrets.SECRET_KEY}}
+            HD_BCRYPT_HASH_PREFIX: ${{secrets.BCRYPT_HASH_PREFIX}}
+            HD_MAIL_USERNAME: ${{secrets.MAIL_USERNAME}}
+            HD_CONFIRMATION_TEMPLATE: ${{secrets.CONFIRMATION_TEMPLATE}}
+            HD_CONFIRMATION_REDIRECT_URL: ${{secrets.CONFIRMATION_REDIRECT_URL}}
+            HD_MAIL_PASSWORD: ${{secrets.MAIL_PASSWORD}}
+            HD_MAIL_SERVER: "${{secrets.MAIL_SERVER}}
+            اHD_MAIL_PORT: ${{secrets.MAIL_PORT}}
+            HD_MAIL_USE_TLS: ${{secrets.MAIL_USE_TLS}}
+            HD_MAIL_USE_SSL: ${{secrets.MAIL_USE_SSL}}
