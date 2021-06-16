@@ -27,6 +27,6 @@ jobs:
             HD_CONFIRMATION_REDIRECT_URL: ${{secrets.CONFIRMATION_REDIRECT_URL}}
             HD_MAIL_PASSWORD: ${{secrets.MAIL_PASSWORD}}
             HD_MAIL_SERVER: ${{secrets.MAIL_SERVER}}
-            اHD_MAIL_PORT: ${{secrets.MAIL_PORT}}
+            HD_MAIL_PORT: ${{secrets.MAIL_PORT}}
             HD_MAIL_USE_TLS: ${{secrets.MAIL_USE_TLS}}
             HD_MAIL_USE_SSL: ${{secrets.MAIL_USE_SSL}}
