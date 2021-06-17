@@ -24,7 +24,6 @@ def index():
 
 
 @api.route('baskets')
-@jwt_required()
 def get_baskets():
     baskets = Basket.query.all()
     baskets_list = [basket.format() for basket in baskets]
