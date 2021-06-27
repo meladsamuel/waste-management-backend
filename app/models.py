@@ -23,7 +23,7 @@ def commit():
 
 
 collect = db.Table('collect',
-                   db.Column('plate_number', db.Integer, db.ForeignKey('vehicles.plate_number'), primary_key=True),
+                   db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
                    db.Column('basket_id', db.Integer, db.ForeignKey('baskets.id'), primary_key=True),
                    db.Column('DOC', db.DateTime, primary_key=True)
                    )
@@ -48,9 +48,7 @@ class Basket(db.Model):
     latitude = db.Column(db.Float, nullable=False)
     software_version = db.Column(db.String, nullable=False, default="0.0.0")
     wastes_height = db.Column(db.Integer, nullable=False, default=0)
-    wastes = db.relationship('Waste', lazy=True, backref=db.backref('basket', lazy=True))
     software_versions = db.relationship('SoftwareVersion', lazy=True, backref=db.backref('basket', lazy=True))
-    # type = db.Column(db.Integer, db.ForeignKey('basketsTypes.id'), nullable=False)
     area_code = db.Column(db.Integer, db.ForeignKey('areas.code'))
     micro_controller = db.Column(db.String, nullable=False)
 
@@ -71,36 +69,45 @@ class Basket(db.Model):
             "latitude": self.latitude,
             "software_version": self.software_version,
             "micro_controller": self.micro_controller,
-            "level": self.get_basket_section_level()
+            "sections": self.get_basket_section_level()
         }
 
+    def get_basket_level(self):
+        total_sections_height = 0
+        for section in self.sections:
+            total_sections_height += section.height
+        return (self.wastes_height * 100) / total_sections_height
+
+    def check_level(self, section_level=None, basket_level=None):
+        if basket_level:
+            if self.get_basket_level() > basket_level:
+                return self.format()
+        if section_level:
+            for section in self.sections:
+                if (section.wastes_height * 100 / section.height) > section_level:
+                    return self.format()
+        return None
+
     def get_basket_section_level(self):
-        basket_height = 0
-        sections_levels_in_basket = []
         wastes_level_in_section = []
         for section in self.sections:
-            basket_height += section.height
             wastes_level_in_section.append(section.get_section_level())
-        for section in self.sections:
-            sections_levels_in_basket.append(section.height * 100 / basket_height)
-        return {
-            "sections_levels_in_the_basket": sections_levels_in_basket,
-            "wastes_level_in_the_section": wastes_level_in_section
-        }
+        return wastes_level_in_section
 
 
 class BasketSection(db.Model):
     height = db.Column(db.SmallInteger, nullable=False)
     width = db.Column(db.SmallInteger, nullable=False)
     length = db.Column(db.SmallInteger, nullable=False)
-    fullness_level = db.Column(db.SmallInteger, default=0)
+    wastes_height = db.Column(db.SmallInteger, default=0)
     category = db.Column(db.String, primary_key=True)
     basket_id = db.Column(db.Integer, db.ForeignKey('baskets.id'), primary_key=True)
     basket = db.relationship('Basket', backref=db.backref('sections'))
+    wastes = db.relationship('Waste', backref=db.backref('section'), lazy='joined')
 
     def set_wastes(self, waste_height):
-        if waste_height <= (self.height - self.fullness_level):
-            self.fullness_level += waste_height
+        if waste_height <= (self.height - self.wastes_height):
+            self.wastes_height += waste_height
             abort(501, "basket is fullness can not add new waste in the system")
         return True
 
@@ -111,7 +118,10 @@ class BasketSection(db.Model):
         return waste_volume_in_meter
 
     def get_section_level(self):
-        return self.fullness_level * 100 / self.height
+        return {
+            "category": self.category,
+            "level": self.wastes_height * 100 / self.height
+        }
 
     def create(self):
         db.session.add(self)
@@ -289,68 +299,20 @@ class Permission(db.Model):
         }
 
 
-class Employee(db.Model):
-    __tablename__ = 'employees'
-    SSN = db.Column(db.BigInteger, primary_key=True)
-    full_name = db.Column(db.String, nullable=False)
-    user_name = db.Column(db.String, nullable=False, unique=False)
-    password = db.Column(db.String, nullable=False)
-    DOB = db.Column(db.DateTime, nullable=False)
-    phone = db.Column(db.String)
-    vehicle = db.relationship('Vehicle', uselist=False, lazy="select", backref=db.backref('driver'))
-    supervise = db.relationship("Employee")
-    supervise_SSN = db.Column(db.BigInteger, db.ForeignKey('employees.SSN'), nullable=True)
-
-    def save(self, has_key_by_default=False):
-        if self.SSN is None or has_key_by_default:
-            db.session.add(self)
-        db.session.commit()
-
-    def delete(self):
-        db.session.delete(self)
-        db.session.commit()
-
-    def format(self):
-        return {
-            "SSN": self.SSN,
-            "full_name": self.full_name,
-            "user_name": self.user_name,
-            "date_of_birth": self.DOB,
-            "phone": self.phone
-        }
-
-
-class Vehicle(db.Model):
-    __tablename__ = "vehicles"
-    plate_number = db.Column(db.Integer, primary_key=True)
-    container_size = db.Column(db.Float)
-    tank_level = db.Column(db.Float)
-    tank_size = db.Column(db.Float)
-    employee_SSN = db.Column(db.BigInteger, db.ForeignKey('employees.SSN'))
-    baskets = db.relationship('Basket', secondary=collect, lazy=True, backref=db.backref('baskets'))
-
-    def save(self, has_key_by_default=False):
-        if self.plate_number is None or has_key_by_default:
-            db.session.add(self)
-        db.session.commit()
-
-    def format(self):
-        return {
-            "plate_number": self.plate_number,
-            "container_size": self.container_size,
-            "tank_level": self.tank_level,
-            "tank_size": self.tank_size,
-            "driver": self.driver.format() if self.driver else {}
-        }
-
-
 class Waste(db.Model):
     __tablename__ = "wastes"
     id = db.Column(db.Integer, primary_key=True)
+    height = db.Column(db.Float)
     size = db.Column(db.Float)
-    type = db.Column(db.String)
-    DOC = db.Column(db.DateTime, nullable=False)
-    basket_id = db.Column(db.Integer, db.ForeignKey('baskets.id'), nullable=True)
+    DOC = db.Column(db.DateTime, server_default=db.func.now())
+    basket_id = db.Column(db.Integer)
+    category = db.Column(db.String)
+    __table_args__ = (
+        db.ForeignKeyConstraint(
+            ('basket_id', 'category'),
+            ('basket_section.basket_id', 'basket_section.category'),
+        ), {}
+    )
 
     def save(self, has_key_by_default=False):
         if self.id is None or has_key_by_default:
@@ -365,6 +327,12 @@ class Waste(db.Model):
             "size": self.size,
             "type": self.type,
             "date_of_creation": self.DOC
+        }
+
+    def format_level(self):
+        return {
+            "height": self.height,
+            "date": int(self.DOC.timestamp())
         }
 
     def delete(self):

@@ -1,6 +1,5 @@
-from flask import Blueprint, jsonify, request, abort, Response, send_file
-from app.models import Basket, User, Waste, Vehicle, Employee, commit, Area, SoftwareVersion, Role, \
-    Permission, BasketSection, AuthError
+from flask import Blueprint, jsonify, request, abort, send_file
+from app.models import Basket, User, Waste, commit, Area, SoftwareVersion, Role, Permission, BasketSection, AuthError
 from app.validate import validate
 from datetime import datetime
 from io import BytesIO
@@ -25,7 +24,20 @@ def index():
 
 @api.route('baskets')
 def get_baskets():
+    args = request.args
+    section_level = args.get('section_level', default=None, type=float)
+    basket_level = args.get('basket_level', default=None, type=float)
     baskets = Basket.query.all()
+
+    if section_level or basket_level:
+        baskets_list = []
+        for basket in baskets:
+            current_basket = basket.check_level(section_level, basket_level)
+            if current_basket:
+                baskets_list.append(current_basket)
+
+        return jsonify({"baskets": baskets_list})
+
     baskets_list = [basket.format() for basket in baskets]
     return jsonify({
         "baskets": baskets_list,
@@ -43,17 +55,15 @@ def get_basket(basket_id):
 
 @api.route('baskets/<int:basket_id>/wastes')
 def get_wastes_of_basket(basket_id):
-    basket = Basket.query.get(basket_id)
-    wastes = [waste.format() for waste in basket.wastes]
-    total_size = 0.0
-    for waste in wastes:
-        total_size = total_size + waste['size']
-        print(type(waste['size']), waste['size'])
-        print(total_size)
-    print(total_size)
+    sections = BasketSection.query.filter_by(basket_id=basket_id).all()
+    wastes = []
+    for section in sections:
+        wastes.append({
+            "category": section.category,
+            "data": [waste.format_level() for waste in section.wastes]
+        })
     return jsonify({
-        "basket_id": basket.id,
-        "total_size": total_size,
+        "basket_id": basket_id,
         "wastes": wastes
     })
 
@@ -171,102 +181,6 @@ def insert_new_area():
     return jsonify({
         "success": True,
         "area": area.format()
-    })
-
-
-@api.route('vehicles')
-def get_vehicles():
-    vehicles = Vehicle.query.all()
-    vehicles_list = [vehicle.format() for vehicle in vehicles]
-    return jsonify({
-        "vehicles": vehicles_list
-    })
-
-
-@api.route('vehicles/<int:vehicle_plate_no>')
-def get_vehicle(vehicle_plate_no):
-    vehicle = Vehicle.query.get(vehicle_plate_no)
-    return jsonify({
-        "vehicle": vehicle.format()
-    })
-
-
-@api.route('vehicles', methods=['POST'])
-def create_vehicle():
-    data = request.json
-    roles = ['plate_number', 'container_size', 'tank_size', 'employee_ssn']
-    if not validate(roles, data):
-        abort(400)
-    plate_number = data['plate_number']
-    container_size = data['container_size']
-    tank_size = data['tank_size']
-    employee_ssn = data['employee_ssn']
-    driver = Employee.query.get(employee_ssn)
-    if not driver:
-        abort(404)
-    # try:
-    vehicle = Vehicle(plate_number=plate_number, container_size=container_size, tank_size=tank_size, driver=driver)
-    vehicle.save(True)
-    return jsonify({
-        "success": True,
-        "vehicle": [vehicle.format()]
-    })
-    # except:
-    #     abort(422)
-
-
-@api.route('employees')
-def get_employees():
-    employees = Employee.query.all()
-    employees_list = [employee.format() for employee in employees]
-    return jsonify({
-        "total_employees": len(employees_list),
-        "employees": employees_list
-    })
-
-
-@api.route('employees/<int:employee_ssn>')
-def get_employee(employee_ssn):
-    employee = Employee.query.get(employee_ssn)
-    return jsonify({
-        "employee": employee.format()
-    })
-
-
-@api.route("employees", methods=['POST'])
-def create_new_employee():
-    data = request.json
-    ssn = data['ssn']
-    full_name = data['full_name']
-    user_name = data['user_name']
-    password = data['password']
-    date_of_birth = data['data_of_birth']
-    phone = data['phone']
-    print(ssn)
-    if not ssn or not full_name or not user_name or not password or not date_of_birth or not phone:
-        abort(400)
-    employee = Employee(SSN=ssn, full_name=full_name, user_name=user_name, password=password, DOB=date_of_birth,
-                        phone=phone).save(True)
-    return jsonify({
-        "success": True,
-        # "employee": [employee.format()]
-    })
-
-
-@api.route("employees", methods=['PATCH'])
-def update_supervisor():
-    # TODO update the supervisor for all employee
-    return ''
-
-
-@api.route('employees/<int:employee_ssn>', methods=['DELETE'])
-def delete_employee(employee_ssn):
-    employee = Employee.query.get(employee_ssn)
-    if employee is None:
-        abort(404)
-    employee.update()
-    return jsonify({
-        "success": True
     })
 
 
@@ -405,7 +319,7 @@ def activate_user():
 @api.route('users/disable', methods=['PATCH'])
 def disable_user():
     req = request.get_json(force=True)
-    user = User.query.filter_by(user_name=req.get('username', None)).one()
+    user = User.query.get(user_name=req.get('id', None))
     user.is_active = False
     try:
         user.save()
