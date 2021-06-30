@@ -6,6 +6,7 @@ from io import BytesIO
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity, \
     get_jwt
 from itsdangerous import URLSafeSerializer
+import qrcode
 
 api = Blueprint('api', __name__, url_prefix='/api')
 
@@ -537,6 +538,26 @@ def post_file():
         "version": software_version.version
     }), 201
 
+
+
+@api.route('/baskets/<int:basket_id>/qr_code')
+def get_basket_qr_code(basket_id):
+    basket = Basket.query.get(basket_id)
+    pil_img = qrcode.make(jsonify({"id": basket.id, "lng": basket.longitude, "lat": basket.latitude}))
+    img_io = BytesIO()
+    pil_img.save(img_io, 'PNG')
+    img_io.seek(0)
+    return send_file(img_io, mimetype='image/png')
+
+
+@api.route('/qr_code', methods=['POST'])
+def generate_qr_code():
+    data = request.get_data()
+    pil_img = qrcode.make(data)
+    img_io = BytesIO()
+    pil_img.save(img_io, 'PNG')
+    img_io.seek(0)
+    return send_file(img_io, mimetype='image/png')
 
 @jwt.additional_claims_loader
 def add_claims_to_access_token(identity):
