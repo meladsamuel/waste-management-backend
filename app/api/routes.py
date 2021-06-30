@@ -539,7 +539,6 @@ def post_file():
     }), 201
 
 
-
 @api.route('/baskets/<int:basket_id>/qr_code')
 def get_basket_qr_code(basket_id):
     basket = Basket.query.get(basket_id)
@@ -558,6 +557,7 @@ def generate_qr_code():
     pil_img.save(img_io, 'PNG')
     img_io.seek(0)
     return send_file(img_io, mimetype='image/png')
+
 
 @jwt.additional_claims_loader
 def add_claims_to_access_token(identity):
