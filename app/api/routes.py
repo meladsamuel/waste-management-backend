@@ -46,6 +46,27 @@ def get_baskets():
     })
 
 
+@api.route('count')
+def number_of_basket():
+    baskets = Basket.query.all()
+    users = User.query.all()
+    full_baskets = []
+    for basket in baskets:
+        current_basket = basket.check_level(90)
+        if current_basket:
+            full_baskets.append(current_basket)
+    pending_users = []
+    for user in users:
+        if not user.is_active:
+            pending_users.append(current_basket)
+    return jsonify({
+        "total_baskets": len(baskets),
+        "total_users": len(users),
+        "pending_users": len(pending_users),
+        "full_baskets": len(full_baskets)
+    })
+
+
 @api.route('baskets/<int:basket_id>')
 def get_basket(basket_id):
     basket = Basket.query.get(basket_id)
