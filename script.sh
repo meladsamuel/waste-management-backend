@@ -25,7 +25,7 @@ sudo make altinstall
 
 # Install pip and virtualenv
 curl -O https://bootstrap.pypa.io/get-pip.py
-sudo /usr/local/bin/python${PYTHON_SHORT_PYTHON_DIR} get-pip.py
+sudo /usr/local/bin/python${PYTHON_SHORT_PYTHON} get-pip.py
 sudo /usr/local/bin/pip${PYTHON_SHORT_VERSION} install virtualenv
 
 
