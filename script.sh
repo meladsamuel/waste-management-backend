@@ -18,7 +18,7 @@ cd Python-${PYTHON_VERSION}
 
 # Build and install Python
 ./configure --enable-optimizations
-make
+make -j 8
 sudo make altinstall
 
 
