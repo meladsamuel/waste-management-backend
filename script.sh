@@ -6,8 +6,9 @@ export PYTHON_MAJOR=3
 
 
 # Install required dependencies for python
-sudo apt-get build-dep python -y
-sudo apt-get install libffi-dev libgdbm-dev libsqlite3-dev libssl-dev zlib1g-dev -y
+sudo apt udpate 
+sudo apt install build-essential libssl-dev zlib1g-dev libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev libgdbm-dev libdb5.3-dev libbz2-dev libexpat1-dev liblzma-dev tk-dev libffi-dev
+
 
 
 # Download and extract Python 
