@@ -1,7 +1,8 @@
 # Waste management system Backend
+this system manages the waste bins and monitors the current level of waste in bins in real-time. and providing the shortest path to collect the full waste bins. and We use python for building REST APIs for the system to manage hardware devices and users for the system. and use Reactjs for the frontend of the application and you can find it [here](https://github.com/meladsamuel/waste-management-frontend).
 ## Getting Started
 ### Installing Dependencies
-####python3.7
+#### python3.7
 we are using python as a backend language
 Follow instructions to install the latest version of python for your platform in the [python docs](https://docs.python.org/3/using/unix.html#getting-and-installing-the-latest-version-of-python)
 ##### Windows
@@ -9,8 +10,40 @@ Follow instructions to install the latest version of python for your platform in
 #### virtual environment
 We recommend working within a virtual environment whenever using Python for projects. This keeps your dependencies for each project separate and organaized. Instructions for setting up a virual enviornment for your platform can be found in the python docs
 
+##### Install pip first
+``` shell script
+sudo apt-get install python3-pip
+```
+
+##### Then install virtualenv using pip3
+```shell script
+sudo pip3 install virtualenv 
+```
+
+##### Now create a virtual environment
+```shell script
+virtualenv venv 
+```
+
+>you can use any name insted of **venv**
+
+##### You can also use a Python interpreter of your choice
+```shell script
+virtualenv -p /usr/bin/python3.7 venv
+```
+##### Active your virtual environment:    
+```shell script
+source venv/bin/activate
+ ```   
+
+##### To deactivate:
+```shell script
+deactivate
+```
+
+
 #### PIP Dependencies
-Once you have your virtual environment setup and running, install dependencies by navigating to the `/backend` directory and running:
+Once you have your virtual environment setup and running, install dependencies by running the following command:
 ```shell script
 pip install -r requirements.txt
 ```
@@ -23,8 +56,6 @@ This will install all of the required packages we selected within the `requireme
 ## Setup Database
 ## Running the Server 
 ## API References
-### Getting Started
-### Error Handling
 ### Endpoints
 #### GET /areas
 - ##### General 
@@ -286,11 +317,11 @@ This will install all of the required packages we selected within the `requireme
     ```
 
 #### POST /baskets
-- #####General 
+- ##### General 
     * Create new basket using the submitted longitude, latitude and area code
     * you can set basket height, width, length, version manually, 
     * Return success message and basket object if created successfully
-- #####Sample
+- ##### Sample
     * Request
     ```shell script
     curl -X POST https://wastes-management.herokuapp.com/api/baskets -H "Content-Type: application/json" -d '{ "area_code": 33, "longitude": 4234432, "latitude": 324242 }'
@@ -316,10 +347,10 @@ This will install all of the required packages we selected within the `requireme
     ```
 
 #### PATCH /baskets
-- #####General 
+- ##### General 
     * Update the basket software version
     * Return the number of updated baskets
-- #####Sample
+- ##### Sample
     * Request
     ```shell script
     curl -X PATCH https://wastes-management.herokuapp.com/api/baskets -H "Content-Type: application/json" -d '{ "software_version": "V2.0"}'
@@ -331,10 +362,10 @@ This will install all of the required packages we selected within the `requireme
     }
     ```
 #### PATCH /baskets/{basket_id}
-- #####General 
+- ##### General 
     * Update basket level by submitted basket level
     * Return success message
-- #####Sample
+- ##### Sample
     * Request
     ```shell script
     curl -X PATCH https://wastes-management.herokuapp.com/api/baskets/1 -H "Content-Type: application/json" -d '{ "level": 0}'
@@ -346,10 +377,10 @@ This will install all of the required packages we selected within the `requireme
     }
     ```
 #### DELETE /baskets/{basket_id}
-- #####General 
+- ##### General 
     * Update the basket software version
     * Return the number of updated baskets
-- #####Sample
+- ##### Sample
     * Request
     ```shell script
     curl -X DELETE https://wastes-management.herokuapp.com/api/baskets/1
