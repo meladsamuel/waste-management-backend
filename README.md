@@ -54,6 +54,10 @@ This will install all of the required packages we selected within the `requireme
 - [Flask-CORS](https://flask-cors.readthedocs.io/)
 
 ## Setup Database
+import the database using `psql`
+```shell script
+psql -U postgres waste < dbexport.pgsql
+```
 ## Running the Server 
 ## API References
 ### Endpoints
